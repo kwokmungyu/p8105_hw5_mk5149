@@ -97,4 +97,142 @@ The plot shows:
 - The probability crosses 99% (the blue dashed line) with a group size of 57 (which is outside our simulation range but visible on the trend).
 
 
+# Problem 2
+We also set a random seed here to ensure our simulation results are reproducible.
+```{r}
+set.seed(8105) # For reproducible results
+```
+ 
+We need to run 5000 simulations for each value of $\mu$ from 0 to 6. We create a function to run a single simulation. Function `run_one_t_test` runs `t.test()`, saves the result as `test_obj`, and then manually creates a tibble by pulling out the `estimate` and `p.value` from that object.
+```{r}
+run_one_t_test = function(true_mu, n = 30, sigma = 5) {
+  # Generate data from Normal(µ, σ)
+  x = rnorm(n = n, mean = true_mu, sd = sigma)
+  
+  # Perform a t-test against H0: µ = 0 and save the output
+  test_obj = t.test(x, mu = 0)
+  
+  # Manually create a tibble with the results
+  # test_obj$estimate[[1]] extracts the sample mean
+  # test_obj$p.value extracts the p-value
+  tibble(
+    estimate = test_obj$estimate[[1]],
+    p.value = test_obj$p.value
+  )
+}
+```
+
+Now, we create our simulation grid. This code is identical to the previous answer. It runs our new function run_one_t_test for each true_mu 5000 times.
+```{r}
+# Define simulation parameters
+n_reps = 5000
+mu_values = 0:6
+
+# Create the simulation grid
+sim_grid = 
+  expand_grid(
+    true_mu = mu_values,
+    iter = 1:n_reps
+  )
+
+# Run all simulations
+# The `map` function applies our t-test function to each `true_mu`
+sim_results = 
+  sim_grid |>
+  mutate(
+    test_output = map(true_mu, run_one_t_test)
+  ) |>
+  unnest(test_output)
+
+# View the resulting structure
+knitr::kable(head(sim_results))
+```
+
+## Part 1: Power Plot
+We group our results by `true_mu` and calculate the proportion of rejections (`p.value < 0.05`).
+```{r}
+# Calculate power for each true_mu
+power_results = 
+  sim_results |>
+  group_by(true_mu) |>
+  summarize(
+    power = mean(p.value < 0.05)
+  )
+
+# Plot power vs. true_mu
+power_results |>
+  ggplot(aes(x = true_mu, y = power)) +
+  geom_point() +
+  geom_line() +
+  labs(
+    title = "Statistical Power vs. True Effect Size (µ)",
+    x = "True Mean (µ)",
+    y = "Power (Proportion of Rejections)",
+    caption = "n=30, σ=5, α=0.05, 5000 simulations per point"
+  ) +
+  scale_y_continuous(labels = scales::percent) +
+  theme_minimal()
+```
+
+The plot shows a strong positive association between the effect size (the true value of $\mu$) and power.
+
+- When the true $\mu$ is 0 (meaning the null hypothesis is true), the power is approximately 5%. This is the Type I error rate ($\alpha$), which is exactly what we set our significance level to. We correctly rejected the (true) null hypothesis about 5% of the time.
+- As the true $\mu$ increases, moving further away from the null value of 0, the power (the probability of correctly rejecting the false null) increases rapidly.
+- By the time the true $\mu$ reaches 4, the test has nearly 100% power, meaning it almost always detects the effect.
+
+## Part 2: Estimate Plot
+```{r}
+# 1. Average estimate across ALL simulations
+avg_estimate_all = 
+  sim_results |>
+  group_by(true_mu) |>
+  summarize(
+    avg_mu_hat = mean(estimate)
+  )
+
+# 2. Average estimate ONLY in rejected (significant) simulations
+avg_estimate_rejected = 
+  sim_results |>
+  filter(p.value < 0.05) |>
+  group_by(true_mu) |>
+  summarize(
+    avg_mu_hat = mean(estimate)
+  )
+
+# Combine for plotting
+plot_data = 
+  bind_rows(
+    "All simulations" = avg_estimate_all,
+    "Rejected simulations only" = avg_estimate_rejected,
+    .id = "sample_group"
+  )
+
+# Plot both lines
+plot_data |>
+  ggplot(aes(x = true_mu, y = avg_mu_hat, color = sample_group)) +
+  geom_point() +
+  geom_line(linewidth = 1) +
+  # Add a y=x line to show what a perfect estimate would be
+  geom_abline(
+    intercept = 0, slope = 1, 
+    linetype = "dashed", color = "black"
+    ) +
+  labs(
+    title = "Average Estimate vs. True Mean",
+    x = "True Mean (µ)",
+    y = "Average Estimated Mean (µ-hat)",
+    color = "Sample Group"
+  ) +
+  theme_minimal()
+```
+
+Is the sample average of $\hat{\mu}$ across tests for which the null is rejected approximately equal to the true value of $\mu$? Why or why not?
+
+No, it is not, especially for small values of the true $\mu$ (where power is low).This phenomenon is a form of selection bias.
+
+- Why it happens: The plot shows that the average $\hat{\mu}$ from all simulations (the red line) falls perfectly on the $y=x$ dashed line. This confirms that the sample mean $\hat{\mu}$ is an unbiased estimator of the true $\mu$.
+- However, the blue line (Rejected simulations only) is biased high. To get a "significant" result (reject the null), the t-statistic ($t = \hat{\mu} / SE$) must be large.
+- When the true effect $\mu$ is small (e.g., $\mu=1$), the power is low. The only way to get a rejection in this scenario is if, by random chance, the sample we drew produced an estimate $\hat{\mu}$ that is much larger than the true $\mu$.
+- By filtering for p.value < 0.05, we are selectively filtering for these overestimates. We are throwing away all the non-significant tests where $\hat{\mu}$ was (correctly) close to the small true $\mu$.
+- As the true $\mu$ increases, power approaches 100%. This means all simulations result in a rejection, so the "rejected only" group becomes the "all simulations" group. This is why the red line converges with the blue line at higher values of $\mu$.
 
