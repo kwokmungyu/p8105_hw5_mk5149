@@ -31,10 +31,70 @@ bday_sim = function(n_room){
 }
 ```
 
+Now, we run the simulation. We need to run it 10,000 times for each group size between 2 and 50.
 
+We use `expand_grid` to create a tibble (a data frame) with every combination of group_size (from 2 to 50) and iter (from 1 to 10,000).
 
+We then mutate a new column `has_duplicate` by applying our `bday_sim` function to each g`roup_size` value using `map_lgl`.
 
+Finally, we `group_by(group_size)` and summarize to calculate the probability by taking the `mean()` of the logical `has_duplicate` column (where TRUE = 1 and FALSE = 0).
+```{r}
+# Define simulation parameters
+n_sims = 10000
+group_sizes = 2:50
 
+# Create a tibble with all combinations of group sizes and iterations
+sim_grid = 
+  expand_grid(
+    group_size = group_sizes,
+    iter = 1:n_sims
+  )
+
+# Run the simulation and calculate probabilities
+bday_sim_results = 
+  sim_grid |>
+  mutate(
+    # Apply the simulation function to each group_size value
+    has_duplicate = map_lgl(group_size, bday_sim)
+  ) |>
+  group_by(
+    group_size
+  ) |>
+  summarize(
+    # The mean of TRUE/FALSE values gives the probability
+    probability = mean(has_duplicate)
+  )
+
+# View the first few rows of the result
+knitr::kable(head(bday_sim_results))
+```
+
+Finally, we create a plot of the probability as a function of group size.
+```{r}
+bday_sim_results |>
+  ggplot(aes(x = group_size, y = probability)) +
+  geom_point() +
+  geom_line() +
+  labs(
+    title = "Birthday Problem: Probability of a Shared Birthday",
+    x = "Group Size",
+    y = "Probability of at least one shared birthday",
+    caption = "Based on 10,000 simulations per group size"
+  ) +
+  theme_minimal() +
+  # Add horizontal lines for reference
+  geom_hline(yintercept = 0.5, linetype = "dashed", color = "red") +
+  geom_hline(yintercept = 0.99, linetype = "dashed", color = "blue")
+```
+The plot shows the probability of a shared birthday as a function of the group size. The probability starts near 0 for a small group (e.g., at `n = 2`, the probability is 1/365, or ~0.0027) and increases rapidly as the group size grows.
+
+The plot shows:
+
+- The probability crosses 50% (the red dashed line) with a group size of just 23 people.
+
+- The probability is already ~97% by the time the group size reaches 50.
+
+- The probability crosses 99% (the blue dashed line) with a group size of 57 (which is outside our simulation range but visible on the trend).
 
 
 
